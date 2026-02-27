@@ -68,5 +68,7 @@
 	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>我們需要讀取相簿來讓您整理照片</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>我們需要刪除權限以幫您清理照片</string>
 </dict>
 </plist>
