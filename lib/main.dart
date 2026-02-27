@@ -69,9 +69,21 @@ class _VideoCardState extends State<VideoCard> {
 
   @override
   Widget build(BuildContext context) {
-    return _controller != null && _controller!.value.isInitialized
-        ? VideoPlayer(_controller!)
-        : AssetEntityImage(widget.asset, isOriginal: false, fit: BoxFit.cover);
+    return Container(
+      color: Colors.black, // 背景設為黑色，填充橫向影片留下的上下黑邊
+      child: _controller != null && _controller!.value.isInitialized
+          ? Center(
+              child: AspectRatio(
+                aspectRatio: _controller!.value.aspectRatio,
+                child: VideoPlayer(_controller!),
+              ),
+            )
+          : AssetEntityImage(
+              widget.asset,
+              isOriginal: false,
+              fit: BoxFit.contain, // 這裡也改成 contain
+            ),
+    );
   }
 }
 
@@ -286,7 +298,7 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
                                             1000,
                                             1000,
                                           ),
-                                          fit: BoxFit.cover,
+                                          fit: BoxFit.contain,
                                           width: double.infinity,
                                           height: double.infinity,
                                         ),
