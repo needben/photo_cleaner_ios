@@ -185,11 +185,12 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
 
   void _scrollToThumbnail(int index) {
     if (_thumbScrollController.hasClients) {
-      // 現在寬度 35 + 間距 8 = 43
-      double targetOffset = index * 43.0;
+      // 66 (寬) + 8 (間距) = 74
+      double targetOffset = index * 74.0;
 
       double screenWidth = MediaQuery.of(context).size.width;
-      double centerOffset = targetOffset - (screenWidth / 2) + 21.5; // 中心點也減半
+      // 置中計算：目標位移 - (螢幕一半) + (一個縮圖的一半)
+      double centerOffset = targetOffset - (screenWidth / 2) + 33;
 
       _thumbScrollController.animateTo(
         centerOffset.clamp(0, _thumbScrollController.position.maxScrollExtent),
@@ -385,70 +386,75 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
                 ),
 
                 // 底部縮圖清單
-                // 1. 將原本的 Expanded 換成 SizedBox，並給予固定高度 (例如 60)
-                SizedBox(
-                  height: 60, // 這裡決定了底部清單整體的佔用高度
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 5), // 縮小上下間距
-                    color: Colors.black,
-                    child: ListView.separated(
-                      controller: _thumbScrollController,
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      itemCount: _photos.length,
-                      separatorBuilder: (context, index) =>
-                          const SizedBox(width: 8),
-                      itemBuilder: (context, index) {
-                        bool isSelected = (index == _currentIndex);
-                        return Center(
-                          // ✨ 關鍵 1: 加入 Center，確保內部的 Container 不會被強制拉長
-                          child: GestureDetector(
-                            onTap: () => _onThumbTap(index),
-                            child: Container(
-                              // ✨ 關鍵 2: 這裡的寬高要跟內部的圖片一致，再加上邊框的寬度
-                              width: 41, // 35 (圖片) + 3*2 (左右邊框)
-                              height: 41, // 35 (圖片) + 3*2 (上下邊框)
-                              decoration: BoxDecoration(
-                                border: Border.all(
-                                  color: isSelected
-                                      ? Colors.white
-                                      : Colors.transparent,
-                                  width: 3,
+                Padding(
+                  padding: const EdgeInsets.only(
+                    bottom: 20,
+                  ), // ✨ 1. 調整這裡，增加與底部的空間 (可根據按鈕位置調整)
+                  child: SizedBox(
+                    height: 70, // 稍微調高一點以容納 4:3 的比例
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 5),
+                      color: Colors.black,
+                      child: ListView.separated(
+                        controller: _thumbScrollController,
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        itemCount: _photos.length,
+                        separatorBuilder: (context, index) =>
+                            const SizedBox(width: 8),
+                        itemBuilder: (context, index) {
+                          bool isSelected = (index == _currentIndex);
+                          return Center(
+                            child: GestureDetector(
+                              onTap: () => _onThumbTap(index),
+                              child: Container(
+                                // ✨ 2. 調整寬高比為 4:3 (加上邊框寬度)
+                                // 圖片高度設為 45 -> 寬度則為 45 * 1.33 = 60
+                                width: 66, // 60 (圖片寬) + 3*2 (左右邊框)
+                                height: 51, // 45 (圖片高) + 3*2 (上下邊框)
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? Colors.white
+                                        : Colors.transparent,
+                                    width: 3,
+                                  ),
+                                  borderRadius: BorderRadius.circular(10),
                                 ),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(7),
-                                child: Stack(
-                                  children: [
-                                    AssetEntityImage(
-                                      _photos[index],
-                                      isOriginal: false,
-                                      thumbnailSize: const ThumbnailSize(
-                                        100,
-                                        100,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(7),
+                                  child: Stack(
+                                    children: [
+                                      AssetEntityImage(
+                                        _photos[index],
+                                        isOriginal: false,
+                                        thumbnailSize: const ThumbnailSize(
+                                          200,
+                                          150,
+                                        ), // 解析度也配合 4:3
+                                        fit: BoxFit.cover, // 填滿 4:3 的框
+                                        width: 60,
+                                        height: 45,
                                       ),
-                                      fit: BoxFit.cover, // 確保圖片比例為 1:1
-                                      width: 35,
-                                      height: 35,
-                                    ),
-                                    if (_photos[index].type == AssetType.video)
-                                      const Positioned(
-                                        right: 1,
-                                        bottom: 1,
-                                        child: Icon(
-                                          Icons.videocam,
-                                          color: Colors.white,
-                                          size: 14, // 縮小圖示以適應較小的縮圖
+                                      if (_photos[index].type ==
+                                          AssetType.video)
+                                        const Positioned(
+                                          right: 2,
+                                          bottom: 2,
+                                          child: Icon(
+                                            Icons.videocam,
+                                            color: Colors.white,
+                                            size: 16,
+                                          ),
                                         ),
-                                      ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        );
-                      },
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ),
