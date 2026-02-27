@@ -3,6 +3,7 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:intl/intl.dart';
+import 'package:video_player/video_player.dart';
 
 void main() {
   runApp(
@@ -18,6 +19,60 @@ class PhotoCleanerApp extends StatefulWidget {
 
   @override
   State<PhotoCleanerApp> createState() => _PhotoCleanerAppState();
+}
+
+class VideoCard extends StatefulWidget {
+  final AssetEntity asset;
+  final bool isCurrent;
+
+  const VideoCard({required this.asset, required this.isCurrent, super.key});
+
+  @override
+  State<VideoCard> createState() => _VideoCardState();
+}
+
+class _VideoCardState extends State<VideoCard> {
+  VideoPlayerController? _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isCurrent) _initPlayer();
+  }
+
+  Future<void> _initPlayer() async {
+    final file = await widget.asset.file;
+    if (file != null) {
+      _controller = VideoPlayerController.file(file)
+        ..setLooping(true)
+        ..setVolume(0) // 預設靜音比較不吵
+        ..initialize().then((_) => setState(() => _controller?.play()));
+    }
+  }
+
+  @override
+  void didUpdateWidget(VideoCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isCurrent && _controller == null) {
+      _initPlayer();
+    } else if (!widget.isCurrent && _controller != null) {
+      _controller?.dispose();
+      _controller = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _controller != null && _controller!.value.isInitialized
+        ? VideoPlayer(_controller!)
+        : AssetEntityImage(widget.asset, isOriginal: false, fit: BoxFit.cover);
+  }
 }
 
 class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
@@ -118,9 +173,11 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
 
   void _scrollToThumbnail(int index) {
     if (_thumbScrollController.hasClients) {
-      double targetOffset = index * 78.0;
+      // 現在寬度 35 + 間距 8 = 43
+      double targetOffset = index * 43.0;
+
       double screenWidth = MediaQuery.of(context).size.width;
-      double centerOffset = targetOffset - (screenWidth / 2) + 39.0;
+      double centerOffset = targetOffset - (screenWidth / 2) + 21.5; // 中心點也減半
 
       _thumbScrollController.animateTo(
         centerOffset.clamp(0, _thumbScrollController.position.maxScrollExtent),
@@ -209,25 +266,34 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
                               },
                           cardBuilder: (context, index, horizontal, vertical) {
                             final asset = _photos[index];
+                            // 判斷這張卡片是否為目前使用者正在看的那張
+                            bool isCurrent = (index == _currentIndex);
+
                             return Stack(
                               children: [
+                                // 背景主體：判斷是影片還是照片
                                 ClipRRect(
                                   borderRadius: BorderRadius.circular(20),
-                                  child: AssetEntityImage(
-                                    asset,
-                                    isOriginal: false,
-                                    thumbnailSize: const ThumbnailSize(
-                                      1000,
-                                      1000,
-                                    ),
-                                    fit: BoxFit.cover,
-                                    width: double.infinity,
-                                    height: double.infinity,
-                                  ),
+                                  child: asset.type == AssetType.video
+                                      ? VideoCard(
+                                          asset: asset,
+                                          isCurrent: isCurrent, // 只有目前這張會自動播放
+                                        )
+                                      : AssetEntityImage(
+                                          asset,
+                                          isOriginal: false,
+                                          thumbnailSize: const ThumbnailSize(
+                                            1000,
+                                            1000,
+                                          ),
+                                          fit: BoxFit.cover,
+                                          width: double.infinity,
+                                          height: double.infinity,
+                                        ),
                                 ),
 
-                                // 影片標籤：如果是影片，在中間顯示播放圖示
-                                if (asset.type == AssetType.video)
+                                // 影片標籤：如果是影片且「不是」正在播放的卡片，才顯示播放圖示
+                                if (asset.type == AssetType.video && !isCurrent)
                                   const Center(
                                     child: Icon(
                                       Icons.play_circle_outline,
@@ -236,7 +302,7 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
                                     ),
                                   ),
 
-                                // 照片日期顯示
+                                // 照片日期顯示 (維持原樣)
                                 Positioned(
                                   top: 15,
                                   left: 15,
@@ -307,10 +373,11 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
                 ),
 
                 // 底部縮圖清單
-                Expanded(
-                  flex: 2,
+                // 1. 將原本的 Expanded 換成 SizedBox，並給予固定高度 (例如 60)
+                SizedBox(
+                  height: 60, // 這裡決定了底部清單整體的佔用高度
                   child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    padding: const EdgeInsets.symmetric(vertical: 5), // 縮小上下間距
                     color: Colors.black,
                     child: ListView.separated(
                       controller: _thumbScrollController,
@@ -321,45 +388,50 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
                           const SizedBox(width: 8),
                       itemBuilder: (context, index) {
                         bool isSelected = (index == _currentIndex);
-                        return GestureDetector(
-                          onTap: () => _onThumbTap(index),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              border: isSelected
-                                  ? Border.all(color: Colors.white, width: 3)
-                                  : Border.all(
-                                      color: Colors.transparent,
-                                      width: 3,
-                                    ),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(7),
-                              child: Stack(
-                                children: [
-                                  AssetEntityImage(
-                                    _photos[index],
-                                    isOriginal: false,
-                                    thumbnailSize: const ThumbnailSize(
-                                      200,
-                                      200,
-                                    ),
-                                    fit: BoxFit.cover,
-                                    width: 70,
-                                    height: 70,
-                                  ),
-                                  // 縮圖上的影片標示
-                                  if (_photos[index].type == AssetType.video)
-                                    const Positioned(
-                                      right: 2,
-                                      bottom: 2,
-                                      child: Icon(
-                                        Icons.videocam,
-                                        color: Colors.white,
-                                        size: 16,
+                        return Center(
+                          // ✨ 關鍵 1: 加入 Center，確保內部的 Container 不會被強制拉長
+                          child: GestureDetector(
+                            onTap: () => _onThumbTap(index),
+                            child: Container(
+                              // ✨ 關鍵 2: 這裡的寬高要跟內部的圖片一致，再加上邊框的寬度
+                              width: 41, // 35 (圖片) + 3*2 (左右邊框)
+                              height: 41, // 35 (圖片) + 3*2 (上下邊框)
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: isSelected
+                                      ? Colors.white
+                                      : Colors.transparent,
+                                  width: 3,
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(7),
+                                child: Stack(
+                                  children: [
+                                    AssetEntityImage(
+                                      _photos[index],
+                                      isOriginal: false,
+                                      thumbnailSize: const ThumbnailSize(
+                                        100,
+                                        100,
                                       ),
+                                      fit: BoxFit.cover, // 確保圖片比例為 1:1
+                                      width: 35,
+                                      height: 35,
                                     ),
-                                ],
+                                    if (_photos[index].type == AssetType.video)
+                                      const Positioned(
+                                        right: 1,
+                                        bottom: 1,
+                                        child: Icon(
+                                          Icons.videocam,
+                                          color: Colors.white,
+                                          size: 14, // 縮小圖示以適應較小的縮圖
+                                        ),
+                                      ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),

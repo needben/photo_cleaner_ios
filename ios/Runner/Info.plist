@@ -66,6 +66,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+	<key>NSAllowsArbitraryLoads</key>
+	<true/>
+	</dict>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>我們需要讀取相簿來讓您整理照片</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
