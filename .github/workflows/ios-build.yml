@@ -1,17 +1,36 @@
 name: iOS Build
-on: [push]
+on:
+  push:
+    branches: [ "main" ]
+
 jobs:
   build:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: subosito/flutter-action@v2
+      - name: Checkout code
+        uses: actions/checkout@v4 # 升級到 v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.x'
           channel: 'stable'
-      - run: flutter pub get
-      - run: flutter build ios --release --no-codesign # 這是關鍵：不簽名編譯
-      - name: Upload Build
-        uses: actions/upload-artifact@v3
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Runner.app
+        run: flutter build ios --release --no-codesign
+
+      - name: Compress App for download
+        run: |
+          cd build/ios/iphoneos
+          mkdir Payload
+          cp -r Runner.app Payload/
+          zip -r ../../../Runner.ipa Payload/
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4 # 升級到 v4
         with:
-          name: ios-build
-          path: build/ios/iphoneos/Runner.app
+          name: ios-app-bundle
+          path: Runner.ipa
