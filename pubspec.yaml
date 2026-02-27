@@ -30,6 +30,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+    
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -37,11 +38,13 @@ dependencies:
   flutter_card_swiper: ^7.2.0
   photo_manager: ^3.8.3
   photo_manager_image_provider: ^2.2.0
+  intl: ^0.19.0  # 新增這一行
+  video_player: ^2.8.1 # 新增這一行
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
+  flutter_launcher_icons: ^0.13.1
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
@@ -52,6 +55,15 @@ dev_dependencies:
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/quokka_logo.png"
+  # 因為你的圖已經有白色背景了，這裡可以用白色或黑色
+  adaptive_icon_background: "#ffffff" 
+  adaptive_icon_foreground: "assets/images/quokka_logo.png"
+
 # The following section is specific to Flutter packages.
 flutter:
 
@@ -59,7 +71,8 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
-
+  assets:
+    - assets/images/quokka_logo.png
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
