@@ -40,6 +40,7 @@ class VideoCard extends StatefulWidget {
 class _VideoCardState extends State<VideoCard> {
   VideoPlayerController? _controller;
   bool _isInitialized = false;
+  bool _isPlaying = false; // 追蹤播放狀態
 
   @override
   void initState() {
@@ -47,45 +48,43 @@ class _VideoCardState extends State<VideoCard> {
     if (widget.isCurrent) _initPlayer();
   }
 
-  // 🌟 關鍵修正：處理 Widget 複用時的資料更新
   @override
   void didUpdateWidget(VideoCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-
-    // 情況 A：照片 ID 換了（滑到了下一個影片）
     if (widget.asset.id != oldWidget.asset.id) {
-      _disposeController(); // 先清理舊的
-      if (widget.isCurrent) _initPlayer(); // 如果是當前張就初始化新的
-    }
-    // 情況 B：ID 沒換，但從「非當前」變成「當前」（例如滑回來）
-    else if (widget.isCurrent && !oldWidget.isCurrent && !_isInitialized) {
+      _disposeController();
+      if (widget.isCurrent) _initPlayer();
+    } else if (widget.isCurrent && !oldWidget.isCurrent && !_isInitialized) {
       _initPlayer();
-    }
-    // 情況 C：滑開了，停止播放以省電/省資源 (選配)
-    else if (!widget.isCurrent && oldWidget.isCurrent) {
+    } else if (!widget.isCurrent && oldWidget.isCurrent) {
       _controller?.pause();
+      _isPlaying = false;
     }
   }
 
   Future<void> _initPlayer() async {
     if (_controller != null) return;
-
     final file = await widget.asset.file;
     if (file != null && mounted) {
       final controller = VideoPlayerController.file(file);
       _controller = controller;
-
       try {
         await controller.initialize();
         if (mounted) {
           await controller.setLooping(true);
-          await controller.setVolume(0);
-          setState(() => _isInitialized = true);
+          await controller.setVolume(0); // 預設靜音，避免滑動時吵雜
+          setState(() {
+            _isInitialized = true;
+            _isPlaying = widget.isCurrent;
+          });
+          if (widget.isCurrent) controller.play();
 
-          // 確保只有在還是 Current 的情況下才播放
-          if (widget.isCurrent) {
-            controller.play();
-          }
+          // 監聽播放狀態變化（例如手動拖拉後自動播放）
+          controller.addListener(() {
+            if (mounted && _isPlaying != controller.value.isPlaying) {
+              setState(() => _isPlaying = controller.value.isPlaying);
+            }
+          });
         }
       } catch (e) {
         debugPrint("影片初始化失敗: $e");
@@ -94,6 +93,7 @@ class _VideoCardState extends State<VideoCard> {
   }
 
   void _disposeController() {
+    _controller?.removeListener(() {});
     _controller?.dispose();
     _controller = null;
     _isInitialized = false;
@@ -105,31 +105,81 @@ class _VideoCardState extends State<VideoCard> {
     super.dispose();
   }
 
+  // 切換播放狀態
+  void _togglePlay() {
+    if (_controller == null || !_isInitialized) return;
+    setState(() {
+      if (_controller!.value.isPlaying) {
+        _controller!.pause();
+        _isPlaying = false;
+      } else {
+        _controller!.play();
+        _isPlaying = true;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: Colors.black,
-      child: Stack(
-        children: [
-          // ✨ 永遠顯示一張縮圖作為底圖，防止影片載入前的黑屏閃動
-          Positioned.fill(
-            child: AssetEntityImage(
-              widget.asset,
-              isOriginal: false,
-              fit: BoxFit.contain,
-              gaplessPlayback: true, // 關鍵：無縫播放縮圖
-            ),
-          ),
-          if (_isInitialized && _controller != null)
+    return GestureDetector(
+      onTap: _togglePlay, // 點擊畫面切換播放/暫停
+      child: Container(
+        color: Colors.black,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // 1. 底圖
             Positioned.fill(
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: _controller!.value.aspectRatio,
-                  child: VideoPlayer(_controller!),
-                ),
+              child: AssetEntityImage(
+                widget.asset,
+                isOriginal: false,
+                fit: BoxFit.contain,
+                gaplessPlayback: true,
               ),
             ),
-        ],
+            // 2. 影片
+            if (_isInitialized && _controller != null) ...[
+              Positioned.fill(
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: _controller!.value.aspectRatio,
+                    child: VideoPlayer(_controller!),
+                  ),
+                ),
+              ),
+              // 3. 暫停時的中央圖示
+              if (!_isPlaying)
+                const Icon(
+                  Icons.play_circle_outline,
+                  color: Colors.white70,
+                  size: 70,
+                ),
+              // 4. 進度條（支持拖拉）
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  color: Colors.black26, // 進度條背景稍微加深，增加易讀性
+                  child: VideoProgressIndicator(
+                    _controller!,
+                    allowScrubbing: true, // 這是拖拉功能的關鍵
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 5,
+                    ),
+                    colors: const VideoProgressColors(
+                      playedColor: Colors.blueAccent,
+                      bufferedColor: Colors.white24,
+                      backgroundColor: Colors.white12,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
