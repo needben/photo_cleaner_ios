@@ -47,40 +47,61 @@ class _VideoCardState extends State<VideoCard> {
     if (widget.isCurrent) _initPlayer();
   }
 
+  // 🌟 關鍵修正：處理 Widget 複用時的資料更新
+  @override
+  void didUpdateWidget(VideoCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // 情況 A：照片 ID 換了（滑到了下一個影片）
+    if (widget.asset.id != oldWidget.asset.id) {
+      _disposeController(); // 先清理舊的
+      if (widget.isCurrent) _initPlayer(); // 如果是當前張就初始化新的
+    }
+    // 情況 B：ID 沒換，但從「非當前」變成「當前」（例如滑回來）
+    else if (widget.isCurrent && !oldWidget.isCurrent && !_isInitialized) {
+      _initPlayer();
+    }
+    // 情況 C：滑開了，停止播放以省電/省資源 (選配)
+    else if (!widget.isCurrent && oldWidget.isCurrent) {
+      _controller?.pause();
+    }
+  }
+
   Future<void> _initPlayer() async {
     if (_controller != null) return;
+
     final file = await widget.asset.file;
     if (file != null && mounted) {
       final controller = VideoPlayerController.file(file);
       _controller = controller;
 
-      await controller.initialize();
-      if (mounted) {
-        await controller.setLooping(true);
-        await controller.setVolume(0);
-        setState(() => _isInitialized = true);
-        // 延遲一點點播放，讓滑動動畫跑完
-        Future.delayed(const Duration(milliseconds: 150), () {
-          if (mounted) controller.play();
-        });
+      try {
+        await controller.initialize();
+        if (mounted) {
+          await controller.setLooping(true);
+          await controller.setVolume(0);
+          setState(() => _isInitialized = true);
+
+          // 確保只有在還是 Current 的情況下才播放
+          if (widget.isCurrent) {
+            controller.play();
+          }
+        }
+      } catch (e) {
+        debugPrint("影片初始化失敗: $e");
       }
     }
   }
 
-  @override
-  void didUpdateWidget(VideoCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // ✨ 只有在「從不是 Current 變成 Current」時才初始化
-    // 當滑掉卡片時，isCurrent 可能會變 false，但我們「不要」在那時做任何事
-    // 讓 dispose 自己去處理清理就好
-    if (widget.isCurrent && !oldWidget.isCurrent && !_isInitialized) {
-      _initPlayer();
-    }
+  void _disposeController() {
+    _controller?.dispose();
+    _controller = null;
+    _isInitialized = false;
   }
 
   @override
   void dispose() {
-    _controller?.dispose();
+    _disposeController();
     super.dispose();
   }
 
@@ -116,7 +137,7 @@ class _VideoCardState extends State<VideoCard> {
 
 class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
   List<AssetEntity> _photos = [];
-  List<String> _pendingDeleteIds = []; // 存放準備刪除的 ID
+  Set<String> _pendingDeleteIds = {}; // 存放準備刪除的 ID ㄝ, Set 自動保證元素唯一性
   bool _isLoading = true;
   int _currentIndex = 0; // 追蹤目前卡片的索引
   final CardSwiperController _swiperController = CardSwiperController();
@@ -175,13 +196,168 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
     }
   }
 
-  // 執行批次刪除
-  Future<void> _handleBulkDelete() async {
-    if (_pendingDeleteIds.isEmpty) return;
+  void _restorePhoto(String id) {
+    setState(() {
+      _pendingDeleteIds.remove(id);
+    });
+    // 如果清單空了，自動關閉預覽視窗
+    if (_pendingDeleteIds.isEmpty) {
+      Navigator.of(context).pop();
+    }
+  }
 
+  void _showPendingDeleteList() {
+    // 過濾出所有在待刪除清單中的 AssetEntity
+    final List<AssetEntity> pendingAssets = _photos
+        .where((p) => _pendingDeleteIds.contains(p.id))
+        .toList();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.grey[900],
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          // 使用 StatefulBuilder 讓視窗內可以即時操作還原
+          builder: (context, setModalState) {
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.8,
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  // 在 _showPendingDeleteList 方法內的 Row 中修改：
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        "待刪除清單 (${pendingAssets.length})",
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      // --- 新增：全部還原按鈕 ---
+                      if (pendingAssets.isNotEmpty)
+                        TextButton.icon(
+                          icon: const Icon(
+                            Icons.settings_backup_restore,
+                            size: 18,
+                          ),
+                          label: const Text("全部還原"),
+                          onPressed: () {
+                            setState(() {
+                              _pendingDeleteIds.clear(); // 清空待刪除清單
+                            });
+                            Navigator.pop(context); // 關閉 BottomSheet
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text("已還原所有照片")),
+                            );
+                          },
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.greenAccent,
+                          ),
+                        ),
+                      // ----------------------
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text(
+                          "關閉",
+                          style: TextStyle(color: Colors.blue),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(color: Colors.white24),
+                  Expanded(
+                    child: GridView.builder(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            mainAxisSpacing: 10,
+                            crossAxisSpacing: 10,
+                          ),
+                      itemCount: pendingAssets.length,
+                      itemBuilder: (context, index) {
+                        final asset = pendingAssets[index];
+                        return Stack(
+                          children: [
+                            Positioned.fill(
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: AssetEntityImage(
+                                  asset,
+                                  isOriginal: false,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            ),
+                            // 右上角的「還原」按鈕
+                            Positioned(
+                              top: 2,
+                              right: 2,
+                              child: GestureDetector(
+                                onTap: () {
+                                  // 1. 更新外部 State
+                                  _restorePhoto(asset.id);
+                                  // 2. 更新 Modal 內部的資料並刷新
+                                  setModalState(() {
+                                    pendingAssets.removeAt(index);
+                                  });
+                                },
+                                child: Container(
+                                  decoration: const BoxDecoration(
+                                    color: Colors.blue,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.undo,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.redAccent,
+                      ),
+                      onPressed: () {
+                        Navigator.pop(context); // 先關視窗
+                        _executeFinalDelete(); // 執行真正的刪除
+                      },
+                      child: const Text(
+                        "確認永久刪除",
+                        style: TextStyle(fontSize: 18, color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _executeFinalDelete() async {
     try {
+      // 這裡才真正動用到 PhotoManager 的硬體刪除權限
       final List<String> deletedIds = await PhotoManager.editor.deleteWithIds(
-        _pendingDeleteIds,
+        _pendingDeleteIds.toList(),
       );
 
       if (deletedIds.isNotEmpty) {
@@ -192,13 +368,12 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
             _currentIndex = _currentIndex.clamp(0, _photos.length - 1);
           }
         });
-
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("成功清理 ${deletedIds.length} 個檔案！")),
+          SnackBar(content: Text("已從裝置中刪除 ${deletedIds.length} 個檔案")),
         );
       }
     } catch (e) {
-      debugPrint("刪除出錯: $e");
+      debugPrint("刪除失敗: $e");
     }
   }
 
@@ -226,15 +401,55 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
 
   @override
   Widget build(BuildContext context) {
-    final DateFormat formatter = DateFormat('yyyy-MM-dd HH:mm:ss');
+    final DateFormat formatter = DateFormat('MMM dd, yyyy HH:mm:ss');
 
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         title: const Text("相簿大掃除"),
+        centerTitle: true, // ✨ 讓標題置中，左右按鈕對稱
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         elevation: 0,
+        leading: _pendingDeleteIds.isEmpty
+            ? null
+            : Stack(
+                alignment: Alignment.center,
+                children: [
+                  IconButton(
+                    icon: const Icon(
+                      Icons.delete_sweep,
+                      color: Colors.redAccent,
+                    ),
+                    onPressed: _showPendingDeleteList, // 呼叫剛才寫好的預覽視窗
+                  ),
+                  // 🔴 顯示待刪除數量的紅點小標籤
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
+                      ),
+                      child: Text(
+                        '${_pendingDeleteIds.length}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+        // 👉 右側按鈕：重新整理
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -266,32 +481,35 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
                           controller: _swiperController,
                           cardsCount: _photos.length,
                           numberOfCardsDisplayed: 2,
+                          maxAngle: 30, // 旋轉角度，讓滑出去的動作更自然
+                          threshold: 40, // 觸發滑掉的門檻像素，越小越靈敏
+                          backCardOffset: const Offset(
+                            0,
+                            0,
+                          ), // 讓背景卡片不要露出來，視覺更乾淨
                           onSwipe: (previousIndex, currentIndex, direction) {
-                            // 1. 處理資料邏輯 (不影響 UI)
-                            if (direction == CardSwiperDirection.left) {
-                              _pendingDeleteIds.add(_photos[previousIndex].id);
-                            }
-
-                            // 2. 只重置提示文字 (讓動畫流暢)
+                            // 1. 立即更新索引，讓 UI 同步 (文字變亮、底圖切換)
                             setState(() {
+                              // 處理資料邏輯：如果向左滑，加入待刪除清單
+                              if (direction == CardSwiperDirection.left) {
+                                final String assetId =
+                                    _photos[previousIndex].id;
+                                if (!_pendingDeleteIds.contains(assetId)) {
+                                  _pendingDeleteIds.add(assetId);
+                                }
+                              }
+
+                              // 關鍵：立刻更新 currentIndex，不要 delay
+                              _currentIndex = currentIndex ?? 0;
+
+                              // 重置提示文字透明度
                               _keepOpacity = 0.0;
                               _deleteOpacity = 0.0;
                             });
 
-                            // 3. ✨ 關鍵延遲：等大卡片飛出一段距離後，再更新索引
-                            // 這樣下方滾輪就不會在大卡片還沒消失前就突然跳動
-                            Future.delayed(
-                              const Duration(milliseconds: 200),
-                              () {
-                                if (mounted) {
-                                  setState(() {
-                                    _currentIndex = currentIndex ?? 0;
-                                  });
-                                  // 滾動下方清單也放在這裡，視覺上會更同步
-                                  _scrollToThumbnail(_currentIndex);
-                                }
-                              },
-                            );
+                            // 2. 底部滾輪滑動可以稍微延遲一點點，或者保持同步
+                            // 如果覺得滾輪跳太快，這裡可以用較短的延遲，但 currentIndex 必須先改
+                            _scrollToThumbnail(_currentIndex);
 
                             return true;
                           },
@@ -314,56 +532,30 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
                               },
                           cardBuilder: (context, index, horizontal, vertical) {
                             final asset = _photos[index];
+                            double aspectRatio = asset.width > 0
+                                ? asset.width / asset.height
+                                : 1.0;
+
+                            // 🌟 使用同一個判斷標準
+                            bool isCurrent = index == _currentIndex;
 
                             return Container(
-                              // ✨ 回歸穩定 ID，不要加 $index
-                              key: ValueKey(asset.id),
-                              decoration: BoxDecoration(
-                                color: Colors.black,
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(20),
-                                child: Stack(
+                              width: double.infinity,
+                              height: double.infinity,
+                              color: Colors.transparent,
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    // 底圖 (縮圖)
-                                    Positioned.fill(
-                                      child: AssetEntityImage(
-                                        asset,
-                                        isOriginal: false,
-                                        thumbnailSize: const ThumbnailSize(
-                                          800,
-                                          800,
-                                        ),
-                                        fit: BoxFit.contain,
-                                        gaplessPlayback: true,
+                                    // 📅 1. 日期：使用 200ms 動畫
+                                    AnimatedOpacity(
+                                      duration: const Duration(
+                                        milliseconds: 50,
                                       ),
-                                    ),
-
-                                    if (asset.type == AssetType.video)
-                                      Positioned.fill(
-                                        child: VideoCard(
-                                          key: ValueKey('video_${asset.id}'),
-                                          asset: asset,
-                                          // 這裡傳入 index == _currentIndex 是對的
-                                          isCurrent: index == _currentIndex,
-                                        ),
-                                      ),
-
-                                    // 照片日期顯示
-                                    Positioned(
-                                      top: 15,
-                                      left: 15,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 5,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black.withOpacity(0.5),
-                                          borderRadius: BorderRadius.circular(
-                                            10,
-                                          ),
+                                      opacity: isCurrent ? 1.0 : 0.3,
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 4,
                                         ),
                                         child: Text(
                                           formatter.format(
@@ -371,8 +563,88 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
                                           ),
                                           style: const TextStyle(
                                             color: Colors.white,
-                                            fontWeight: FontWeight.bold,
                                             fontSize: 16,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+
+                                    // 🖼️ 2. 照片卡片
+                                    Flexible(
+                                      child: AspectRatio(
+                                        aspectRatio: aspectRatio,
+                                        child: Container(
+                                          key: ValueKey(asset.id),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black,
+                                            borderRadius: BorderRadius.circular(
+                                              20,
+                                            ),
+                                            boxShadow: [
+                                              // 只有當前照片有陰影
+                                              if (isCurrent)
+                                                BoxShadow(
+                                                  color: Colors.black
+                                                      .withOpacity(0.5),
+                                                  blurRadius: 25,
+                                                  spreadRadius: 5,
+                                                ),
+                                            ],
+                                          ),
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              20,
+                                            ),
+                                            child: Stack(
+                                              children: [
+                                                // 照片底圖
+                                                Positioned.fill(
+                                                  child: AssetEntityImage(
+                                                    asset,
+                                                    isOriginal: false,
+                                                    thumbnailSize:
+                                                        const ThumbnailSize(
+                                                          1200,
+                                                          1200,
+                                                        ),
+                                                    fit: BoxFit.cover,
+                                                    gaplessPlayback: true,
+                                                  ),
+                                                ),
+
+                                                // 影片層
+                                                if (asset.type ==
+                                                    AssetType.video)
+                                                  Positioned.fill(
+                                                    child: VideoCard(
+                                                      key: ValueKey(
+                                                        'video_${asset.id}',
+                                                      ),
+                                                      asset: asset,
+                                                      isCurrent: isCurrent,
+                                                    ),
+                                                  ),
+
+                                                // 🌟 關鍵修正：照片遮罩也改用 AnimatedOpacity
+                                                // 移除 if (isNotCurrent)，讓 Widget 永遠存在，只改透明度
+                                                Positioned.fill(
+                                                  child: AnimatedOpacity(
+                                                    duration: const Duration(
+                                                      milliseconds: 200,
+                                                    ),
+                                                    // 當是 current 時，遮罩透明度為 0 (全亮)
+                                                    // 當不是 current 時，遮罩透明度為 0.6 (變暗)
+                                                    opacity: isCurrent
+                                                        ? 0.0
+                                                        : 0.6,
+                                                    child: Container(
+                                                      color: Colors.black,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
                                           ),
                                         ),
                                       ),
@@ -389,17 +661,20 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
                       Positioned(
                         left: 30,
                         top: MediaQuery.of(context).size.height * 0.4,
-                        child: Opacity(
-                          opacity: _keepOpacity,
-                          child: const Text(
-                            "Keep",
-                            style: TextStyle(
-                              color: Colors.greenAccent,
-                              fontSize: 60,
-                              fontWeight: FontWeight.bold,
-                              shadows: [
-                                Shadow(color: Colors.black, blurRadius: 10),
-                              ],
+                        child: IgnorePointer(
+                          // 🌟 加上這一層，手勢會直接穿透
+                          child: Opacity(
+                            opacity: _keepOpacity,
+                            child: const Text(
+                              "Keep",
+                              style: TextStyle(
+                                color: Colors.greenAccent,
+                                fontSize: 60,
+                                fontWeight: FontWeight.bold,
+                                shadows: [
+                                  Shadow(color: Colors.black, blurRadius: 10),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -407,17 +682,20 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
                       Positioned(
                         right: 30,
                         top: MediaQuery.of(context).size.height * 0.4,
-                        child: Opacity(
-                          opacity: _deleteOpacity,
-                          child: const Text(
-                            "Delete",
-                            style: TextStyle(
-                              color: Colors.redAccent,
-                              fontSize: 60,
-                              fontWeight: FontWeight.bold,
-                              shadows: [
-                                Shadow(color: Colors.black, blurRadius: 10),
-                              ],
+                        child: IgnorePointer(
+                          // 🌟 加上這一層，手勢會直接穿透
+                          child: Opacity(
+                            opacity: _deleteOpacity,
+                            child: const Text(
+                              "Delete",
+                              style: TextStyle(
+                                color: Colors.redAccent,
+                                fontSize: 60,
+                                fontWeight: FontWeight.bold,
+                                shadows: [
+                                  Shadow(color: Colors.black, blurRadius: 10),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -485,10 +763,10 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
                                           : Colors.transparent,
                                       width: 3,
                                     ),
-                                    borderRadius: BorderRadius.circular(4),
+                                    borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(2),
+                                    borderRadius: BorderRadius.circular(4),
                                     child: AssetEntityImage(
                                       _photos[index],
                                       isOriginal: false,
@@ -512,18 +790,6 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
                 ),
               ],
             ),
-      floatingActionButton: _pendingDeleteIds.isEmpty
-          ? null
-          : Padding(
-              padding: const EdgeInsets.only(bottom: 80), // 調整這個數值，數字越大越高
-              child: FloatingActionButton.extended(
-                onPressed: _handleBulkDelete,
-                label: Text("確認刪除 (${_pendingDeleteIds.length})"),
-                icon: const Icon(Icons.delete_forever),
-                backgroundColor: Colors.redAccent,
-              ),
-            ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 }
