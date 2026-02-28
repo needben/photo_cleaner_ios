@@ -185,12 +185,12 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
 
   void _scrollToThumbnail(int index) {
     if (_thumbScrollController.hasClients) {
-      // 66 (寬) + 8 (間距) = 74
-      double targetOffset = index * 74.0;
+      // 26 (容器寬) + 8 (間距) = 34
+      double targetOffset = index * 34.0;
 
       double screenWidth = MediaQuery.of(context).size.width;
-      // 置中計算：目標位移 - (螢幕一半) + (一個縮圖的一半)
-      double centerOffset = targetOffset - (screenWidth / 2) + 33;
+      // 置中計算：目標位移 - (螢幕一半) + (縮圖寬度一半 13)
+      double centerOffset = targetOffset - (screenWidth / 2) + 13;
 
       _thumbScrollController.animateTo(
         centerOffset.clamp(0, _thumbScrollController.position.maxScrollExtent),
@@ -387,11 +387,9 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
 
                 // 底部縮圖清單
                 Padding(
-                  padding: const EdgeInsets.only(
-                    bottom: 20,
-                  ), // ✨ 1. 調整這裡，增加與底部的空間 (可根據按鈕位置調整)
+                  padding: const EdgeInsets.only(bottom: 25), // 稍微增加底部間距
                   child: SizedBox(
-                    height: 70, // 稍微調高一點以容納 4:3 的比例
+                    height: 65, // 調整高度以容納長形縮圖與邊框
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 5),
                       color: Colors.black,
@@ -401,17 +399,17 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
                         padding: const EdgeInsets.symmetric(horizontal: 10),
                         itemCount: _photos.length,
                         separatorBuilder: (context, index) =>
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 2),
                         itemBuilder: (context, index) {
                           bool isSelected = (index == _currentIndex);
                           return Center(
                             child: GestureDetector(
                               onTap: () => _onThumbTap(index),
                               child: Container(
-                                // ✨ 2. 調整寬高比為 4:3 (加上邊框寬度)
-                                // 圖片高度設為 45 -> 寬度則為 45 * 1.33 = 60
-                                width: 66, // 60 (圖片寬) + 3*2 (左右邊框)
-                                height: 51, // 45 (圖片高) + 3*2 (上下邊框)
+                                // ✨ 寬度設為 20:40 (加上 3 像素邊框)
+                                // 圖片 20x40 -> 容器就是 26x46
+                                width: 26, // 20 (圖片寬) + 3*2 (左右邊框)
+                                height: 46, // 40 (圖片高) + 3*2 (上下邊框)
                                 decoration: BoxDecoration(
                                   border: Border.all(
                                     color: isSelected
@@ -419,32 +417,35 @@ class _PhotoCleanerAppState extends State<PhotoCleanerApp> {
                                         : Colors.transparent,
                                     width: 3,
                                   ),
-                                  borderRadius: BorderRadius.circular(10),
+                                  borderRadius: BorderRadius.circular(
+                                    6,
+                                  ), // 窄長形建議圓角稍微小一點比較精緻
                                 ),
                                 child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(7),
+                                  borderRadius: BorderRadius.circular(4),
                                   child: Stack(
                                     children: [
                                       AssetEntityImage(
                                         _photos[index],
                                         isOriginal: false,
                                         thumbnailSize: const ThumbnailSize(
+                                          100,
                                           200,
-                                          150,
-                                        ), // 解析度也配合 4:3
-                                        fit: BoxFit.cover, // 填滿 4:3 的框
-                                        width: 60,
-                                        height: 45,
+                                        ), // 解析度配合 1:2
+                                        fit: BoxFit.cover,
+                                        width: 20,
+                                        height: 40,
                                       ),
+                                      // 影片圖示改到上方或縮小，因為寬度只有 20px 空間很窄
                                       if (_photos[index].type ==
                                           AssetType.video)
                                         const Positioned(
-                                          right: 2,
-                                          bottom: 2,
+                                          right: 1,
+                                          bottom: 1,
                                           child: Icon(
                                             Icons.videocam,
                                             color: Colors.white,
-                                            size: 16,
+                                            size: 10, // 縮小圖示
                                           ),
                                         ),
                                     ],
